@@ -1,0 +1,24 @@
+# SQLGuard MCP — Pro Configuration
+# Copy this file to sqlguard.yaml and pass it with --config ./sqlguard.yaml
+#
+# Requires a Pro license: https://sealca.gumroad.com/l/sqlguard-mcp
+
+rules:
+  # Block all mutations on sensitive tables
+  - name: protect-sensitive-tables
+    blockedTables:
+      - users
+      - payments
+      - subscriptions
+      - api_keys
+
+  # Cap the number of rows any single UPDATE/DELETE can affect
+  - name: limit-bulk-operations
+    maxRowsAffected: 500
+
+  # Prevent mutations during business hours (24h format, inclusive)
+  # Uncomment to enable:
+  # - name: no-mutations-during-business-hours
+  #   blockedHours:
+  #     start: 9
+  #     end: 17
