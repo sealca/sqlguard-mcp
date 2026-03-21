@@ -107,6 +107,34 @@ SQLGuard returns:
   Reason: DELETE without WHERE clause will affect all rows
 ```
 
+## Security modes
+
+Control how SQLGuard handles different query types via `SQLGUARD_MODE` env var or `--mode` flag:
+
+| Mode | SELECT | INSERT/UPDATE | DROP/DELETE/TRUNCATE |
+|------|--------|---------------|---------------------|
+| `read-only` | Allowed | **Blocked** | **Blocked** |
+| `strict` (default) | Allowed | Dry-run + confirmation | **Blocked** |
+| `permissive` | Allowed | Allowed | Allowed (with warning) |
+
+### Example config with mode
+
+```json
+{
+  "mcpServers": {
+    "sqlguard": {
+      "command": "npx",
+      "args": ["sqlguard-mcp", "--pg", "postgresql://user:pass@localhost/mydb"],
+      "env": {
+        "SQLGUARD_MODE": "read-only"
+      }
+    }
+  }
+}
+```
+
+Or via CLI flag: `npx sqlguard-mcp --pg "..." --mode strict`
+
 ## CLI options
 
 ```
@@ -117,9 +145,13 @@ CONNECTION (one required):
   Individual PostgreSQL options:
   --host, --port, --database, --user, --password, --ssl
 
+SECURITY MODE:
+  --mode <mode>              read-only | strict | permissive (default: strict)
+
 ENVIRONMENT VARIABLES:
   SQLGUARD_PG                PostgreSQL connection string
   SQLGUARD_SQLITE            SQLite file path
+  SQLGUARD_MODE              Security mode
 ```
 
 ## Supported databases

@@ -73,4 +73,87 @@ describe('evaluatePolicy', () => {
     const decision = evaluatePolicy(makeClassification({ tables: ['users'] }), makeImpact(), rules);
     expect(decision.blocked).toBe(false);
   });
+
+  // ─── read-only mode ──────────────────────────────────────────────────────
+  describe('read-only mode', () => {
+    it('allows SELECT queries', () => {
+      const classification = makeClassification({ type: 'READ', operation: 'SELECT' });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'read-only');
+      expect(decision.blocked).toBe(false);
+      expect(decision.requiresConfirmation).toBe(false);
+    });
+
+    it('blocks INSERT queries', () => {
+      const classification = makeClassification({ type: 'WRITE', operation: 'INSERT' });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'read-only');
+      expect(decision.blocked).toBe(true);
+      expect(decision.blockReason).toContain('read-only');
+    });
+
+    it('blocks DELETE queries', () => {
+      const classification = makeClassification({ type: 'DESTRUCTIVE', operation: 'DELETE' });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'read-only');
+      expect(decision.blocked).toBe(true);
+      expect(decision.blockReason).toContain('read-only');
+    });
+
+    it('blocks UPDATE queries', () => {
+      const classification = makeClassification({ type: 'WRITE', operation: 'UPDATE' });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'read-only');
+      expect(decision.blocked).toBe(true);
+    });
+  });
+
+  // ─── permissive mode ─────────────────────────────────────────────────────
+  describe('permissive mode', () => {
+    it('allows WRITE queries without confirmation', () => {
+      const decision = evaluatePolicy(makeClassification(), makeImpact(), [], 'permissive');
+      expect(decision.blocked).toBe(false);
+      expect(decision.requiresConfirmation).toBe(false);
+    });
+
+    it('allows DESTRUCTIVE queries with warning', () => {
+      const classification = makeClassification({
+        type: 'DESTRUCTIVE',
+        operation: 'DROP',
+        tables: ['users'],
+        isUnsafe: true,
+      });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'permissive');
+      expect(decision.blocked).toBe(false);
+      expect(decision.warnings.length).toBeGreaterThan(0);
+      expect(decision.warnings[0]).toContain('permissive');
+    });
+
+    it('allows DELETE without WHERE with warning', () => {
+      const classification = makeClassification({
+        type: 'DESTRUCTIVE',
+        operation: 'DELETE',
+        isUnsafe: true,
+        reason: 'DELETE without WHERE',
+      });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'permissive');
+      expect(decision.blocked).toBe(false);
+      expect(decision.warnings.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ─── strict mode (explicit) ──────────────────────────────────────────────
+  describe('strict mode (explicit)', () => {
+    it('blocks unsafe queries', () => {
+      const classification = makeClassification({
+        type: 'DESTRUCTIVE',
+        operation: 'DROP',
+        isUnsafe: true,
+      });
+      const decision = evaluatePolicy(classification, makeImpact(), [], 'strict');
+      expect(decision.blocked).toBe(true);
+    });
+
+    it('requires confirmation for WRITE', () => {
+      const decision = evaluatePolicy(makeClassification(), makeImpact(), [], 'strict');
+      expect(decision.blocked).toBe(false);
+      expect(decision.requiresConfirmation).toBe(true);
+    });
+  });
 });

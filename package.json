@@ -1,6 +1,6 @@
 {
   "name": "sqlguard-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Safety layer MCP server that intercepts SQL queries and enforces guardrails before they reach your database",
   "keywords": [
     "mcp",

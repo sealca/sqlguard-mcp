@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import type { DbConnection } from './db/connection.js';
-import type { ServerConfig, QueryAnalysis } from './types.js';
+import type { ServerConfig, QueryAnalysis, SecurityMode } from './types.js';
 import { classifyQuery } from './parser/classifier.js';
 import { runExplain, estimateImpact } from './parser/analyzer.js';
 import { evaluatePolicy } from './policy/engine.js';
@@ -11,8 +11,9 @@ import { executeQuery } from './db/executor.js';
 
 export async function createServer(
   db: DbConnection,
-  _config: ServerConfig
+  config: ServerConfig
 ): Promise<McpServer> {
+  const mode: SecurityMode = config.mode;
   const server = new McpServer(
     { name: 'sqlguard-mcp', version: '1.0.0' },
     { capabilities: { logging: {} } }
@@ -44,6 +45,25 @@ export async function createServer(
       }
 
       const classification = classifyQuery(trimmedSql);
+
+      // In read-only mode, block non-READ queries before impact analysis
+      if (mode === 'read-only' && classification.type !== 'READ') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: [
+                '[SQLGuard] BLOCKED',
+                '',
+                `Mode: read-only`,
+                `Operation: ${classification.operation}`,
+                `Reason: Only SELECT queries are allowed in read-only mode.`,
+              ].join('\n'),
+            },
+          ],
+          isError: true,
+        };
+      }
 
       // For READ queries, execute immediately
       if (classification.type === 'READ') {
@@ -77,7 +97,7 @@ export async function createServer(
 
       // For WRITE/DESTRUCTIVE: run impact analysis
       const impact = await estimateImpact(trimmedSql, classification.tables, db);
-      const policyDecision = evaluatePolicy(classification, impact, activeRules);
+      const policyDecision = evaluatePolicy(classification, impact, activeRules, mode);
 
       const analysis: QueryAnalysis = {
         query: trimmedSql,
@@ -104,6 +124,26 @@ export async function createServer(
           ],
           isError: true,
         };
+      }
+
+      // In permissive mode, execute directly with warnings
+      if (mode === 'permissive' && !policyDecision.blocked) {
+        const result = await executeQuery(trimmedSql, analysis, db);
+        if (!result.success) {
+          return {
+            content: [{ type: 'text', text: `Execution error: ${result.error}` }],
+            isError: true,
+          };
+        }
+        const lines = [
+          'Query executed.',
+          `Rows affected: ${result.rowsAffected ?? 0}`,
+          `Execution time: ${result.executionTimeMs}ms`,
+        ];
+        if (policyDecision.warnings.length > 0) {
+          lines.push('', ...policyDecision.warnings);
+        }
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
       }
 
       // Requires confirmation — return analysis without executing
@@ -292,6 +332,7 @@ export async function createServer(
         '',
         `Database type:    ${db.type}`,
         `Connected:        ${db.isConnected() ? 'Yes' : 'No'}`,
+        `Security mode:    ${mode}`,
         '',
         `Plan:             Free`,
         '',

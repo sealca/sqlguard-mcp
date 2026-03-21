@@ -1,4 +1,4 @@
-import type { QueryClassification, PolicyRule, ImpactEstimate } from '../types.js';
+import type { QueryClassification, PolicyRule, ImpactEstimate, SecurityMode } from '../types.js';
 
 export interface PolicyDecision {
   blocked: boolean;
@@ -10,15 +10,39 @@ export interface PolicyDecision {
 export function evaluatePolicy(
   classification: QueryClassification,
   impact: ImpactEstimate,
-  rules: PolicyRule[]
+  rules: PolicyRule[],
+  mode: SecurityMode = 'strict'
 ): PolicyDecision {
   const warnings: string[] = [];
 
-  // Always block isUnsafe queries (DELETE without WHERE, DROP, TRUNCATE, ALTER)
+  // ─── read-only: block everything except SELECT ─────────────────────────
+  if (mode === 'read-only') {
+    if (classification.type !== 'READ') {
+      return {
+        blocked: true,
+        blockReason: `[SQLGuard read-only] ${classification.operation} is blocked. Only SELECT queries are allowed in read-only mode.`,
+        requiresConfirmation: false,
+        warnings,
+      };
+    }
+    return { blocked: false, requiresConfirmation: false, warnings };
+  }
+
+  // ─── permissive: allow everything, warn on destructive ─────────────────
+  if (mode === 'permissive') {
+    if (classification.type === 'DESTRUCTIVE' || classification.isUnsafe) {
+      warnings.push(
+        `[SQLGuard permissive] WARNING: ${classification.operation} on ${classification.tables.join(', ') || 'unknown table'} — executing without block.`
+      );
+    }
+    return { blocked: false, requiresConfirmation: false, warnings };
+  }
+
+  // ─── strict (default): block unsafe, confirm writes ────────────────────
   if (classification.isUnsafe) {
     return {
       blocked: true,
-      blockReason: classification.reason ?? `${classification.operation} is blocked for safety`,
+      blockReason: `[SQLGuard strict] ${classification.reason ?? `${classification.operation} is blocked for safety`}`,
       requiresConfirmation: false,
       warnings,
     };
@@ -41,12 +65,10 @@ export function evaluatePolicy(
     }
   }
 
-  // Collect warnings
   if (impact.warningMessage) {
     warnings.push(impact.warningMessage);
   }
 
-  // WRITE queries require confirmation
   const requiresConfirmation =
     classification.type === 'WRITE' || classification.type === 'DESTRUCTIVE';
 

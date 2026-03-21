@@ -1,5 +1,7 @@
 export type QueryType = 'READ' | 'WRITE' | 'DESTRUCTIVE' | 'UNKNOWN';
 
+export type SecurityMode = 'read-only' | 'strict' | 'permissive';
+
 export interface QueryClassification {
   type: QueryType;
   operation: string;
@@ -52,6 +54,7 @@ export interface ConnectionConfig {
 
 export interface ServerConfig {
   connection: ConnectionConfig;
+  mode: SecurityMode;
 }
 
 export interface ExecuteResult {

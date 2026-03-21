@@ -12,7 +12,9 @@
 
 import { createConnection } from './db/connection.js';
 import { startServer } from './server.js';
-import type { ConnectionConfig, ServerConfig } from './types.js';
+import type { ConnectionConfig, SecurityMode, ServerConfig } from './types.js';
+
+const VALID_MODES = new Set<SecurityMode>(['read-only', 'strict', 'permissive']);
 
 function parseArgs(): { connectionConfig: ConnectionConfig; serverConfig: ServerConfig } {
   const args = process.argv.slice(2);
@@ -84,8 +86,23 @@ function parseArgs(): { connectionConfig: ConnectionConfig; serverConfig: Server
     process.exit(1);
   }
 
+  // Parse security mode
+  const modeArg = args.find((a, i) => args[i - 1] === '--mode');
+  const modeEnv = process.env['SQLGUARD_MODE'];
+  const rawMode = modeArg ?? modeEnv ?? 'strict';
+  const mode: SecurityMode = VALID_MODES.has(rawMode as SecurityMode)
+    ? (rawMode as SecurityMode)
+    : 'strict';
+
+  if (rawMode && !VALID_MODES.has(rawMode as SecurityMode)) {
+    console.error(
+      `[sqlguard-mcp] Warning: Unknown mode "${rawMode}", defaulting to "strict". Valid modes: read-only, strict, permissive`
+    );
+  }
+
   const serverConfig: ServerConfig = {
     connection: connectionConfig,
+    mode,
   };
 
   return { connectionConfig, serverConfig };
@@ -112,9 +129,16 @@ CONNECTION (one required):
   --password <pass>          Password
   --ssl                      Enable SSL
 
+SECURITY MODE:
+  --mode <mode>              Security mode (default: strict)
+                             read-only   — only SELECT allowed
+                             strict      — writes need confirmation, destructive blocked
+                             permissive  — everything executes, destructive ops warned
+
 ENVIRONMENT VARIABLES:
   SQLGUARD_PG                PostgreSQL connection string
   SQLGUARD_SQLITE            SQLite file path
+  SQLGUARD_MODE              Security mode (read-only | strict | permissive)
 
 EXAMPLES:
   # PostgreSQL
@@ -139,7 +163,7 @@ async function main(): Promise<void> {
     const db = await createConnection(connectionConfig);
 
     process.stderr.write(
-      `[sqlguard-mcp] Connected. Starting MCP server...\n`
+      `[sqlguard-mcp] Connected. Mode: ${serverConfig.mode}. Starting MCP server...\n`
     );
 
     await startServer(db, serverConfig);
